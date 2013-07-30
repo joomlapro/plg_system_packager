@@ -10,6 +10,9 @@
 // No direct access.
 defined('_JEXEC') or die;
 
+jimport('joomla.filesystem.file');
+jimport('joomla.filesystem.folder');
+
 /**
  * Joomla Packager plugin.
  *
@@ -105,20 +108,89 @@ class PlgSystemPackager extends JPlugin
 				switch ($extension->type)
 				{
 					case 'component':
-						// $this->exportComponent($extension);
-						// break;
+						$this->exportComponent($extension);
+						break;
 					case 'file':
+						// $this->exportFile($extension);
+						// break;
 					case 'language':
+						// $this->exportLanguage($extension);
+						// break;
 					case 'library':
+						// $this->exportLibrary($extension);
+						// break;
 					case 'module':
+						// $this->exportModule($extension);
+						// break;
 					case 'package':
+						// $this->exportPackage($extension);
+						// break;
 					case 'plugin':
+						// $this->exportPlugin($extension);
+						// break;
 					case 'template':
 						$this->underConstruction($extension);
 						break;
 				}
 			}
 		}
+	}
+
+	/**
+	 * Method to export component.
+	 *
+	 * @param   JTableExtension  &$item  The extension object.
+	 *
+	 * @return  boolean  True if successful, false otherwise and internal error is set.
+	 *
+	 * @since   3.1
+	 */
+	public function exportComponent(&$item)
+	{
+		// Initialiase variables.
+		$app     = JFactory::getApplication();
+		$site    = JPATH_SITE . '/components/' . $item->element;
+		$admin   = JPATH_ADMINISTRATOR . '/components/' . $item->element;
+		$tmp     = $app->getCfg('tmp_path') . '/' . $item->element;
+		$ziproot = $app->getCfg('tmp_path') . '/' . uniqid($item->element . '_') . '.zip';
+
+		if (JFolder::exists($tmp))
+		{
+			JFolder::delete($tmp);
+		}
+
+		JFolder::create($tmp);
+
+		if (JFolder::exists($site))
+		{
+			JFolder::copy($site, $tmp . '/site');
+		}
+
+		if (JFolder::exists($admin))
+		{
+			JFolder::copy($admin, $tmp . '/admin');
+
+			$xml_src = $tmp . '/admin/' . $item->element . '.xml';
+			$xml_dest = $tmp . '/' . $item->element . '.xml';
+
+			var_dump($xml_src);
+			var_dump($xml_dest);
+
+			JFile::move($xml_src, $xml_dest);
+		}
+
+		$files = $this->recursiveScandir($tmp);
+
+		if (!$this->createZip($files, $ziproot, true))
+		{
+			$this->setError(JText::_('PLG_SYSTEM_PACKAGER_ERR_ZIP_CREATE_FAILURE'));
+
+			return false;
+		}
+
+		JFolder::delete($tmp);
+
+		return true;
 	}
 
 	/**
@@ -208,6 +280,100 @@ class PlgSystemPackager extends JPlugin
 				|| $lang->load("$extension.sys", $path, $lang->getDefault(), false, false)
 				|| $lang->load("$extension.sys", $source, $lang->getDefault(), false, false);
 			break;
+		}
+	}
+
+	/**
+	 * [recursiveScandir description]
+	 *
+	 * @param   [type]  $dir  [description]
+	 *
+	 * @return  array
+	 *
+	 * @since   3.1
+	 */
+	public function recursiveScandir($dir)
+	{
+		$contents = array();
+
+		foreach (scandir($dir) as $file)
+		{
+			if ($file == '.' || $file == '..')
+			{
+				continue;
+			}
+
+			$path = $dir . '/' . $file;
+
+			if (is_dir($path))
+			{
+				$contents = array_merge($contents, $this->recursiveScandir($path));
+			}
+			else
+			{
+				$contents[] = $path;
+			}
+		}
+
+		return $contents;
+	}
+
+	/**
+	 * Method to create a zip file.
+	 *
+	 * @param   array    $files      Array of files to add to archive.
+	 * @param   string   $dest       The path to the destination file.
+	 * @param   boolean  $overwrite  True if existing files can be replaced.
+	 *
+	 * @return  boolean  True if successful, false otherwise and internal error is set.
+	 *
+	 * @since   3.1
+	 */
+	public function createZip($files, $dest, $overwrite = false)
+	{
+		// Get the application.
+		$app = JFactory::getApplication();
+
+		if (JFile::exists($dest) && !$overwrite)
+		{
+			return false;
+		}
+
+		$valid_files = array();
+
+		if (is_array($files))
+		{
+			foreach ($files as $file)
+			{
+				if (JFile::exists($file))
+				{
+					$valid_files[] = $file;
+				}
+			}
+		}
+
+		if (count($valid_files))
+		{
+			$zip = new ZipArchive;
+
+			if ($zip->open($dest, $overwrite ? ZIPARCHIVE::OVERWRITE : ZIPARCHIVE::CREATE) !== true)
+			{
+				return false;
+			}
+
+			foreach ($valid_files as $file)
+			{
+				$new_filename = str_replace($app->getCfg('tmp_path') . '/', '', $file);
+				$zip->addFile($file, $new_filename);
+			}
+
+			$zip->close();
+
+			return JFile::exists($dest);
+		}
+		else
+		{
+			return false;
 		}
 	}
 }
